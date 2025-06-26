@@ -20,6 +20,13 @@
 
 * Python 3.7 or later
 
+### Install Crawly (via PyPI)
+
+```bash
+pip install crawly-zarcuel
+playwright install
+```
+
 ### Install Crawly (for development)
 
 ```bash
@@ -33,6 +40,12 @@ playwright install
 
 ```bash
 python crawly.py -u <start_url> [options]
+```
+
+Or if installed via pip:
+
+```bash
+crawly-zarcuel -u <start_url> [options]
 ```
 
 ### Options
@@ -52,6 +65,12 @@ python crawly.py -u <start_url> [options]
 python crawly.py -u https://example.com -d 2 -w 5 -e logout contact -o report.csv
 ```
 
+Or with the CLI version:
+
+```bash
+crawly-zarcuel -u https://example.com -d 2 -w 5 -e logout contact -o report.csv
+```
+
 ---
 
 ## Output
@@ -64,8 +83,6 @@ The output is a CSV file with columns:
 * `Cookies` – matched cookie names and headers
 
 ---
-
-
 
 ## Author
 
@@ -92,4 +109,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
