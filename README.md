@@ -1,6 +1,6 @@
 # Crawly
 
-**Crawly** is a fast, parallelized web scanner that crawls websites to detect privacy-impacting elements like tracking cookies, social media embeds, and analytics scripts using Playwright and BeautifulSoup.
+**Crawly** is a fast, parallel processing web scanner that crawls websites to detect privacy-impacting elements like tracking cookies, social media embeds, and analytics scripts using Playwright and BeautifulSoup.
 
 ---
 
