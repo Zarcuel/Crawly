@@ -1,10 +1,10 @@
 Crawly
-Crawly is a fast, parallel processing web scanner that crawls websites to detect privacy-impacting elements like tracking cookies, social media embeds, and analytics scripts using Playwright and BeautifulSoup. It can also run in "scraper mode" to search for specific keywords or file types (like *.pdf or login) across a site.
+Crawly is a fast, parallel processing web scanner that crawls websites to detect privacy-impacting elements like tracking cookies, social media embeds, and analytics scripts using Playwright and BeautifulSoup. It can also run in scraper mode to search for specific keywords or file types (like *.pdf or token) across a site.
 
-🔧 Features
+Features
 🔍 Detects tracking cookies, social media plugins, analytics tools, and suspicious domains
 
-🕵️ Scraper mode: search for patterns like *.pdf, login, or any keyword in the page content
+🔎 Scraper mode: search for custom strings or patterns like "login" or "*.pdf"
 
 ⚡ Fast, multithreaded scanning with ThreadPoolExecutor
 
@@ -12,25 +12,31 @@ Crawly is a fast, parallel processing web scanner that crawls websites to detect
 
 🧠 Smart filtering of URLs and crawl depth
 
-💾 Exports to CSV and optionally JSON
+💾 Save raw scan results to JSON for re-export
 
-⏹️ Graceful stopping with q + Enter
+♻️ Re-export CSVs with different filters without rescanning
 
-📤 Re-export CSV from saved JSON (no need to rescan)
+⏹️ Gracefully stop crawling by pressing q and proceed to scanning
 
-💻 Installation
+📄 Outputs results to a CSV for easy review
+
+Installation
 Requirements
-Python 3.7+
+Python 3.7 or later
 
-Playwright
-
+Install Crawly (via PyPI)
+bash
+Copy
+Edit
+pip install crawly-zarcuel
+playwright install
 Install Crawly (for development)
 bash
 Copy
 Edit
 pip install beautifulsoup4 playwright
 playwright install
-🚀 Usage
+Usage
 bash
 Copy
 Edit
@@ -45,48 +51,65 @@ Options
 Option	Description
 -u, --url	Required. Starting URL to scan
 -d	Crawl depth (default: 2)
--e, --exclude	Substrings to exclude from crawling (e.g., logout, contact)
--w, --workers	Number of parallel threads (default: 4)
+-e, --exclude	List of substrings to exclude from crawling (e.g., logout, contact)
+-w, --workers	Number of parallel workers/threads (default: 4)
 -o, --output	Output CSV filename (default: scan_results.csv)
--s, --scan-limit	Maximum number of pages to scan
--f, --filter	Substrings to filter from final CSV output
---scrape	Scraper mode: keyword or wildcard pattern (e.g., "*.pdf", "token")
---save-json	Save raw scan results to a .json file
---reexport	Re-export CSV from saved JSON file (no new scan required)
+-s, --scan-limit	Max number of pages to scan (optional)
+-f, --filter	Substrings to filter out from final CSV output (e.g., googletagmanager)
+--scrape	Enable scraper mode (e.g., "*.pdf" or "token")
+--save-json	Save raw scan results to a JSON file
+--reexport <file>	Re-export from a previous JSON file without crawling or scanning again
 
-🔍 Scraper Mode
-Instead of checking for trackers, use Crawly as a simple scraper:
-
+Example: Full Scan
 bash
 Copy
 Edit
-python crawly.py -u https://example.com --scrape "login"
+python crawly.py -u https://example.com -d 2 -w 5 -e logout contact -o report.csv --save-json raw.json
+Example: Scraper Mode
+bash
+Copy
+Edit
 python crawly.py -u https://example.com --scrape "*.pdf"
-It will return only pages containing the specified string or pattern.
-
-✋ Graceful Exit
-Press q + Enter during a scan to stop crawling early and immediately begin scanning the collected URLs.
-
-🧾 Output Format
-The CSV output contains:
-
-URL: scanned page
-
-Detected: Yes/No for plugin/cookie mode
-
-Source: matched sources (scripts, embeds, etc.)
-
-Cookies: matched cookies and headers
-
-🔁 Reuse Past Results
-You can re-filter or re-export a past scan without re-scanning:
-
+python crawly.py -u https://example.com --scrape "login"
+Example: Re-export with new filters (no scanning)
 bash
 Copy
 Edit
-python crawly.py --reexport saved_results.json -o new_filtered_report.csv -f cdn.example.com
-👨‍💻 Author
-Zarcuel — Privacy-focused pentester and creator of Crawly 🕷️
-MIT Licensed – Free for personal and commercial use
+python crawly.py --reexport raw.json -o clean.csv -f googletagmanager facebook
+Output
+The output is a CSV file with columns:
 
-Let me know if you’d like badges (like PyPI, license, or version), screenshots of output, or a sample CSV snippet added!
+URL – the scanned page
+
+Detected – Yes or No depending on if matches were found
+
+Source – all matched sources (scripts, embeds, file links, or patterns)
+
+Cookies – matched cookie names and headers (only in detection mode)
+
+Optional: Save raw scan results to a .json file for reuse and offline re-filtering.
+
+Author
+Zarcuel — Privacy-focused pentester and creator of Crawly 🕷️
+
+License
+MIT License
+© 2025 Zarcuel
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
