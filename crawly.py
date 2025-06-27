@@ -8,9 +8,10 @@ from urllib.parse import urlparse, urljoin, urlunparse, parse_qs
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import fnmatch
 
 class PageScanner:
-    def __init__(self, start_url=None, max_depth=2, delay=1.0, exclude_patterns=None, workers=4):
+    def __init__(self, start_url=None, max_depth=2, delay=1.0, exclude_patterns=None, workers=4, scrape_pattern=None):
         self.start_url = start_url
         self.max_depth = max_depth
         self.delay = delay
@@ -19,6 +20,7 @@ class PageScanner:
         self.visited = set()
         self.processed_datarefs = set()
         self.stop_event = threading.Event()
+        self.scrape_pattern = scrape_pattern
 
     def normalize_url(self, url):
         parsed = urlparse(url)
@@ -94,12 +96,23 @@ class PageScanner:
             return None
 
         soup = BeautifulSoup(html, 'html.parser')
+        if self.scrape_pattern:
+            return self.scrape_mode(url, soup)
         return self.parse(url, soup, cookies, set_cookie_headers)
 
     def is_internal(self, base_url, test_url):
         base_domain = urlparse(base_url).netloc
         test_domain = urlparse(test_url).netloc
         return base_domain == test_domain
+
+    def scrape_mode(self, page_url, soup):
+        matches = []
+        for tag in soup.find_all(['a', 'link', 'script', 'iframe']):
+            for attr in ['href', 'src']:
+                value = tag.get(attr)
+                if value and fnmatch.fnmatch(value, self.scrape_pattern):
+                    matches.append(value)
+        return {'url': page_url, 'matches': list(set(matches))}
 
     def parse(self, page_url, soup, cookies, set_cookie_headers):
         scripts = [tag.get('src') for tag in soup.find_all('script') if tag.get('src')]
@@ -179,25 +192,32 @@ class PageScanner:
         findings['cookies'] = list(set(cookie_matches))
         return findings
 
+
 def export_to_csv(results, filename="scan_results.csv", filter_out=None):
     filter_out = filter_out or []
 
     with open(filename, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['URL', 'Detected', 'Source', 'Cookies'])
-        for item in results:
-            detected = any(len(v) > 0 for k, v in item.items() if k not in ['url', 'cookies'])
-            flat_sources = []
-            for k, v in item.items():
-                if k not in ['url', 'cookies'] and v:
-                    flat_sources.extend(v)
-            flat_sources = [s for s in set(flat_sources) if all(f not in s for f in filter_out)]
-            writer.writerow([
-                item['url'],
-                'Yes' if detected else 'No',
-                '; '.join(flat_sources),
-                '; '.join(item['cookies'])
-            ])
+        if 'matches' in results[0]:
+            writer.writerow(['URL', 'Matches'])
+            for item in results:
+                writer.writerow([item['url'], '; '.join(item['matches'])])
+        else:
+            writer.writerow(['URL', 'Detected', 'Source', 'Cookies'])
+            for item in results:
+                detected = any(len(v) > 0 for k, v in item.items() if k not in ['url', 'cookies'])
+                flat_sources = []
+                for k, v in item.items():
+                    if k not in ['url', 'cookies'] and v:
+                        flat_sources.extend(v)
+                flat_sources = [s for s in set(flat_sources) if all(f not in s for f in filter_out)]
+                writer.writerow([
+                    item['url'],
+                    'Yes' if detected else 'No',
+                    '; '.join(flat_sources),
+                    '; '.join(item['cookies'])
+                ])
+
 
 def start_quit_listener(stop_event):
     def listen():
@@ -209,8 +229,9 @@ def start_quit_listener(stop_event):
     thread = threading.Thread(target=listen, daemon=True)
     thread.start()
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Scans website for embedded social media elements")
+    parser = argparse.ArgumentParser(description="Scans website for embedded social media elements or custom patterns")
     parser.add_argument("-u", "--url", help="Starting url to scan")
     parser.add_argument("-d", type=int, help="Scan depth", default=2)
     parser.add_argument("-e", "--exclude", nargs='*', default=[], help="Exclude substrings")
@@ -220,6 +241,7 @@ def main():
     parser.add_argument("-f", "--filter", nargs='*', default=[], help="Filter substrings from CSV")
     parser.add_argument("--save-json", help="Save raw scan results to JSON")
     parser.add_argument("--reexport", help="Re-export CSV from existing JSON results")
+    parser.add_argument("--scrape", help="Pattern to scrape instead of full scan (e.g. '*.pdf')")
 
     args = parser.parse_args()
 
@@ -234,7 +256,10 @@ def main():
         print("[!] Error: --url is required when not re-exporting")
         return
 
-    scanner = PageScanner(start_url=args.url, max_depth=args.d, delay=1.5, exclude_patterns=args.exclude, workers=args.workers)
+    scanner = PageScanner(start_url=args.url, max_depth=args.d, delay=1.5,
+                          exclude_patterns=args.exclude, workers=args.workers,
+                          scrape_pattern=args.scrape)
+
     start_quit_listener(scanner.stop_event)
 
     results = []
@@ -270,6 +295,7 @@ def main():
             print(f"[+] Raw scan results saved to: {args.save_json}")
         export_to_csv(results, args.output, args.filter)
         print(f"[+] Filtered CSV saved to: {args.output}")
+
 
 if __name__ == "__main__":
     main()
