@@ -2,7 +2,8 @@ import sys
 import time
 import argparse
 import csv
-from urllib.parse import urlparse, urljoin
+import threading
+from urllib.parse import urlparse, urljoin, urlunparse, parse_qs
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,40 +16,64 @@ class PageScanner:
         self.exclude_patterns = exclude_patterns or []
         self.workers = workers
         self.visited = set()
+        self.processed_datarefs = set()
+        self.stop_event = threading.Event()
+
+    def normalize_url(self, url):
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        for key in ['cache', 'back', 'template']:
+            query.pop(key, None)
+        new_query = '&'.join(f"{k}={v[0]}" for k, v in query.items())
+        clean = parsed._replace(query=new_query, fragment="")
+        return urlunparse(clean)
 
     def crawl(self, limit=None):
         queue = [(self.start_url, 0)]
         urls_to_scan = []
 
-        while queue:
-            url, depth = queue.pop(0)
-            if url in self.visited or depth > self.max_depth:
-                continue
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
 
-            print(f"[+] Queued for scan ({depth}): {url}")
-            self.visited.add(url)
-            urls_to_scan.append(url)
+            while queue and not self.stop_event.is_set():
+                url, depth = queue.pop(0)
+                normalized_url = self.normalize_url(url)
+                parsed = urlparse(url)
+                query = parse_qs(parsed.query)
+                dataref = query.get("dataRef", [None])[0]
 
-            if limit is not None and len(urls_to_scan) >= limit:
-                break
+                if dataref and dataref in self.processed_datarefs:
+                    continue
 
-            try:
-                with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=True)
-                    page = browser.new_page()
-                    page.goto(url, wait_until="networkidle")
+                if normalized_url in self.visited or depth > self.max_depth:
+                    continue
+
+                self.visited.add(normalized_url)
+                print(f"[+] Queued for scan ({depth}): {url}")
+                urls_to_scan.append(normalized_url)
+
+                if dataref:
+                    self.processed_datarefs.add(dataref)
+
+                if limit is not None and len(urls_to_scan) >= limit:
+                    break
+
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=10000)
                     html = page.content()
-                    browser.close()
-            except Exception:
-                continue
+                except Exception:
+                    continue
 
-            soup = BeautifulSoup(html, 'html.parser')
-            for tag in soup.find_all('a', href=True):
-                link = urljoin(url, tag['href'])
-                should_exclude = any(pattern in link for pattern in self.exclude_patterns)
-                if self.is_internal(url, link) and link not in self.visited and not should_exclude:
-                    queue.append((link, depth + 1))
+                soup = BeautifulSoup(html, 'html.parser')
+                for tag in soup.find_all('a', href=True):
+                    link = urljoin(url, tag['href'])
+                    should_exclude = any(pattern in link for pattern in self.exclude_patterns)
+                    normalized_link = self.normalize_url(link)
+                    if self.is_internal(url, link) and normalized_link not in self.visited and not should_exclude:
+                        queue.append((link, depth + 1))
 
+            browser.close()
         return urls_to_scan
 
     def scan_url(self, url):
@@ -62,6 +87,7 @@ class PageScanner:
                 cookies = context.cookies()
                 set_cookie_headers = page.evaluate("() => document.cookie")
                 browser.close()
+                print(f"[✓] Scanned: {url}")
         except Exception as e:
             print(f"[!] Error visiting {url}: {e}")
             return None
@@ -152,8 +178,9 @@ class PageScanner:
         findings['cookies'] = list(set(cookie_matches))
         return findings
 
-
 def export_to_csv(results, filename="scan_results.csv"):
+    filter_out = []
+
     with open(filename, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['URL', 'Detected', 'Source', 'Cookies'])
@@ -163,8 +190,18 @@ def export_to_csv(results, filename="scan_results.csv"):
             for k, v in item.items():
                 if k not in ['url', 'cookies'] and v:
                     flat_sources.extend(v)
+            flat_sources = [s for s in flat_sources if all(f not in s for f in filter_out)]
             writer.writerow([item['url'], 'Yes' if detected else 'No', '; '.join(flat_sources), '; '.join(item['cookies'])])
 
+def start_quit_listener(stop_event):
+    def listen():
+        print("[i] Press 'q' then Enter to stop crawling and begin scanning.")
+        while not stop_event.is_set():
+            if sys.stdin.readline().strip().lower() == 'q':
+                print("[!] Crawl stopped by user. Proceeding to scan...")
+                stop_event.set()
+    thread = threading.Thread(target=listen, daemon=True)
+    thread.start()
 
 def main():
     parser = argparse.ArgumentParser(description="Scans website for embedded social media elements")
@@ -177,32 +214,38 @@ def main():
     args = parser.parse_args()
 
     scanner = PageScanner(start_url=args.url, max_depth=args.d, delay=1.5, exclude_patterns=args.exclude, workers=args.workers)
+    start_quit_listener(scanner.stop_event)
 
     results = []
 
     try:
-        try:
-            urls = scanner.crawl(limit=args.scan_limit)
-        except KeyboardInterrupt:
-            print("\n[!] Crawl interrupted. Scanning what was collected so far...")
-            urls = list(scanner.visited)
+        urls = scanner.crawl(limit=args.scan_limit)
+        if scanner.stop_event.is_set():
+            if not urls:
+                urls = list(scanner.visited)
+            print(f"\n[!] Crawl stopped early. Proceeding to scan {len(urls)} collected pages...")
 
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
-            future_to_url = {executor.submit(scanner.scan_url, url): url for url in urls}
-            for future in as_completed(future_to_url):
+            futures = [executor.submit(scanner.scan_url, url) for url in urls]
+
+            for future in as_completed(futures):
                 try:
                     result = future.result()
                     if result:
+                        print(f"[+] Got result for: {result['url']}")
                         results.append(result)
+                    else:
+                        print("[!] No result returned")
                 except Exception as e:
                     print(f"[!] Error scanning URL: {e}")
 
     except KeyboardInterrupt:
         print("\n[!] Scan interrupted. Saving partial results...")
+        scanner.stop_event.set()
 
-    export_to_csv(results, args.output)
-    print(f"[+] Results saved to: {args.output}")
-
+    finally:
+        export_to_csv(results, args.output)
+        print(f"[+] Results saved to: {args.output}")
 
 if __name__ == "__main__":
     main()
