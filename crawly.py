@@ -2,6 +2,7 @@ import sys
 import time
 import argparse
 import csv
+import json
 import threading
 from urllib.parse import urlparse, urljoin, urlunparse, parse_qs
 from bs4 import BeautifulSoup
@@ -178,8 +179,8 @@ class PageScanner:
         findings['cookies'] = list(set(cookie_matches))
         return findings
 
-def export_to_csv(results, filename="scan_results.csv"):
-    filter_out = []
+def export_to_csv(results, filename="scan_results.csv", filter_out=None):
+    filter_out = filter_out or []
 
     with open(filename, mode='w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -190,8 +191,13 @@ def export_to_csv(results, filename="scan_results.csv"):
             for k, v in item.items():
                 if k not in ['url', 'cookies'] and v:
                     flat_sources.extend(v)
-            flat_sources = [s for s in flat_sources if all(f not in s for f in filter_out)]
-            writer.writerow([item['url'], 'Yes' if detected else 'No', '; '.join(flat_sources), '; '.join(item['cookies'])])
+            flat_sources = [s for s in set(flat_sources) if all(f not in s for f in filter_out)]
+            writer.writerow([
+                item['url'],
+                'Yes' if detected else 'No',
+                '; '.join(flat_sources),
+                '; '.join(item['cookies'])
+            ])
 
 def start_quit_listener(stop_event):
     def listen():
@@ -205,13 +211,28 @@ def start_quit_listener(stop_event):
 
 def main():
     parser = argparse.ArgumentParser(description="Scans website for embedded social media elements")
-    parser.add_argument("-u", "--url", help="Starting url to scan", required=True)
-    parser.add_argument("-d", type=int, help="defines how deep we want scan to go", default=2)
-    parser.add_argument("-e", "--exclude", nargs='*', default=[], help="List of substrings to exclude from crawling (e.g., logout, contact)")
-    parser.add_argument("-w", "--workers", type=int, default=4, help="Number of parallel workers to fetch URLs")
-    parser.add_argument("-o", "--output", help="Output CSV file", default="scan_results.csv")
-    parser.add_argument("-s", "--scan-limit", type=int, help="Maximum number of pages to scan")
+    parser.add_argument("-u", "--url", help="Starting url to scan")
+    parser.add_argument("-d", type=int, help="Scan depth", default=2)
+    parser.add_argument("-e", "--exclude", nargs='*', default=[], help="Exclude substrings")
+    parser.add_argument("-w", "--workers", type=int, default=4, help="Number of workers")
+    parser.add_argument("-o", "--output", help="CSV output file", default="scan_results.csv")
+    parser.add_argument("-s", "--scan-limit", type=int, help="Max pages to scan")
+    parser.add_argument("-f", "--filter", nargs='*', default=[], help="Filter substrings from CSV")
+    parser.add_argument("--save-json", help="Save raw scan results to JSON")
+    parser.add_argument("--reexport", help="Re-export CSV from existing JSON results")
+
     args = parser.parse_args()
+
+    if args.reexport:
+        with open(args.reexport, "r", encoding="utf-8") as jf:
+            results = json.load(jf)
+        export_to_csv(results, args.output, args.filter)
+        print(f"[+] Re-exported filtered results to: {args.output}")
+        return
+
+    if not args.url:
+        print("[!] Error: --url is required when not re-exporting")
+        return
 
     scanner = PageScanner(start_url=args.url, max_depth=args.d, delay=1.5, exclude_patterns=args.exclude, workers=args.workers)
     start_quit_listener(scanner.stop_event)
@@ -220,10 +241,9 @@ def main():
 
     try:
         urls = scanner.crawl(limit=args.scan_limit)
-        if scanner.stop_event.is_set():
-            if not urls:
-                urls = list(scanner.visited)
-            print(f"\n[!] Crawl stopped early. Proceeding to scan {len(urls)} collected pages...")
+        if scanner.stop_event.is_set() and not urls:
+            urls = list(scanner.visited)
+        print(f"[+] Scanning {len(urls)} URLs...")
 
         with ThreadPoolExecutor(max_workers=args.workers) as executor:
             futures = [executor.submit(scanner.scan_url, url) for url in urls]
@@ -240,12 +260,16 @@ def main():
                     print(f"[!] Error scanning URL: {e}")
 
     except KeyboardInterrupt:
-        print("\n[!] Scan interrupted. Saving partial results...")
+        print("[!] Interrupted. Saving partial results...")
         scanner.stop_event.set()
 
     finally:
-        export_to_csv(results, args.output)
-        print(f"[+] Results saved to: {args.output}")
+        if args.save_json:
+            with open(args.save_json, "w", encoding="utf-8") as jf:
+                json.dump(results, jf, indent=2)
+            print(f"[+] Raw scan results saved to: {args.save_json}")
+        export_to_csv(results, args.output, args.filter)
+        print(f"[+] Filtered CSV saved to: {args.output}")
 
 if __name__ == "__main__":
     main()
