@@ -10,6 +10,9 @@
 * ⚡ Fast, multithreaded scanning with ThreadPoolExecutor
 * 🎭 Uses Playwright to simulate real browser visits and collect JavaScript-set cookies
 * 🧠 Smart filtering of URLs and crawl depth
+* 💾 **Save raw scan results to JSON for re-export**
+* ♻️ **Re-export CSVs with different filters without rescanning**
+* ⏹️ **Gracefully stop crawling by pressing `q` and proceed to scanning**
 * 📄 Outputs results to a CSV for easy review
 
 ---
@@ -50,25 +53,30 @@ crawly-zarcuel -u <start_url> [options]
 
 ### Options
 
-| Option               | Description                                                             |
-| -------------------- | ----------------------------------------------------------------------- |
-| `-u`, `--url`        | **Required.** Starting URL to scan                                      |
-| `-d`                 | Crawl depth (default: `2`)                                              |
-| `-e`, `--exclude`    | List of substrings to exclude from crawling (e.g., `logout`, `contact`) |
-| `-w`, `--workers`    | Number of parallel workers/threads (default: `4`)                       |
-| `-o`, `--output`     | Output CSV filename (default: `scan_results.csv`)                       |
-| `-s`, `--scan-limit` | Max number of pages to scan (optional)                                  |
+| Option               | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `-u`, `--url`        | **Required.** Starting URL to scan                                        |
+| `-d`                 | Crawl depth (default: `2`)                                                |
+| `-e`, `--exclude`    | List of substrings to exclude from crawling (e.g., `logout`, `contact`)   |
+| `-w`, `--workers`    | Number of parallel workers/threads (default: `4`)                         |
+| `-o`, `--output`     | Output CSV filename (default: `scan_results.csv`)                         |
+| `-s`, `--scan-limit` | Max number of pages to scan (optional)                                    |
+| `-f`, `--filter`     | Substrings to filter out from final CSV output (e.g., `googletagmanager`) |
+| `--save-json`        | Save raw scan results to a JSON file                                      |
+| `--reexport <file>`  | Re-export from a previous JSON file without crawling or scanning again    |
 
-### Example
+---
+
+### Example: Full Scan
 
 ```bash
-python crawly.py -u https://example.com -d 2 -w 5 -e logout contact -o report.csv
+python crawly.py -u https://example.com -d 2 -w 5 -e logout contact -o report.csv --save-json raw.json
 ```
 
-Or with the CLI version:
+### Example: Re-export with new filters (no scanning)
 
 ```bash
-crawly-zarcuel -u https://example.com -d 2 -w 5 -e logout contact -o report.csv
+python crawly.py --reexport raw.json -o clean.csv -f googletagmanager facebook
 ```
 
 ---
@@ -82,11 +90,17 @@ The output is a CSV file with columns:
 * `Source` – all tracking/script sources detected
 * `Cookies` – matched cookie names and headers
 
+Optional: Save raw scan results to a `.json` file for reuse and offline re-filtering.
+
 ---
 
 ## Author
 
-Zarcuel — Privacy-focused pentester and creator of Crawly 🕷️
+**Zarcuel** — Privacy-focused pentester and creator of Crawly 🕷️
+
+---
+
+## License
 
 MIT License
 
